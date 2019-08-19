@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -23,16 +24,97 @@ func Setup() error {
 	}
 
 	log.Info("test utilities are not ready. Install...")
-	if err := getKubetestAndUtilities(); err != nil {
-		return err
-	}
+	if os.Getenv("COMPILE_TEST_UTILITIES") != "true" {
+		if err := getKubetestAndUtilities(); err != nil {
+			return err
+		}
 
-	if areTestUtilitiesReady() {
-		log.Info("setup finished successfuly. Testutilities ready. Kubetest is ready for usage.")
+		if areTestUtilitiesReady() {
+			log.Info("setup finished successfuly. Testutilities ready. Kubetest is ready for usage.")
+			return nil
+		}
+	} else {
+		goModuleOriginValue := os.Getenv("GO111MODULE")
+		_ = os.Setenv("GO111MODULE", "off")
+		log.Info("test utilities are not ready. Install...")
+		if _, err := util.RunCmd("go get k8s.io/test-infra/kubetest", ""); err != nil {
+			return err
+		}
+		if err := downloadKubernetes(config.K8sRelease); err != nil {
+			return err
+		}
+		if err := downloadKubectl(config.K8sRelease); err != nil {
+			return err
+		}
+		if err := compileOrGetTestUtilities(config.K8sRelease); err != nil {
+			return err
+		}
+		_ = os.Setenv("GO111MODULE", goModuleOriginValue)
 		return nil
 	}
 	log.Fatal("Couldn't prepare kubetest utilities")
 	return nil
+}
+
+func downloadKubernetes(k8sVersion string) error {
+	log.Infof("get kubernetes v%s", k8sVersion)
+	cloneCmd := fmt.Sprintf("git clone --branch=retry-ns-deletion --depth=1 https://github.com/schrodit/kubernetes %s", config.KubernetesPath)
+	log.Infof("directory %s does not exist. Run %s", config.KubernetesPath, cloneCmd)
+	if out, err := util.RunCmd(cloneCmd, ""); err != nil && !isNoGoFilesErr(out.StdErr) {
+		log.Errorf("failed to %s", cloneCmd, err)
+		return err
+	}
+
+	log.Infof("kubernetes v%s successfully installed", k8sVersion)
+	return nil
+}
+
+func downloadKubectl(k8sVersion string) error {
+	log.Info("download corresponding kubectl version")
+	if _, err := util.RunCmd(fmt.Sprintf("curl -LO https://storage.googleapis.com/kubernetes-release/release/v%s/bin/%s/amd64/kubectl", k8sVersion, runtime.GOOS), ""); err != nil {
+		return err
+	}
+	kubectlBinPath := "/usr/local/bin/kubectl"
+	_ = os.Setenv("KUBECTL_PATH", kubectlBinPath)
+	if err := util.MoveFile("./kubectl", kubectlBinPath); err != nil {
+		return err
+	}
+	if err := os.Chmod(kubectlBinPath, 0755); err != nil {
+		return err
+	}
+
+	// verify successful kubectl installation
+	log.Infof("KUBECTL_PATH=%s", os.Getenv("KUBECTL_PATH"))
+	if _, err := util.RunCmd("kubectl version", ""); err != nil {
+		return err
+	} else {
+		log.Info("kubectl successfully installed")
+	}
+	return nil
+}
+
+func compileOrGetTestUtilities(k8sVersion string) error {
+	log.Info("no precompiled kubernetes test binaries available, or operating system is not linux/darwin, build e2e.test and ginkgo")
+	var err error
+	if _, err = util.RunCmd("make WHAT=test/e2e/e2e.test", config.KubernetesPath); err != nil {
+		return err
+	}
+	if _, err = util.RunCmd("make WHAT=vendor/github.com/onsi/ginkgo/ginkgo", config.KubernetesPath); err != nil {
+		return err
+	}
+
+	log.Info("get k8s examples")
+	if out, err := util.RunCmd("go get -u k8s.io/examples", ""); err != nil && !isNoGoFilesErr(out.StdErr) {
+		return err
+	}
+	return nil
+}
+
+func isNoGoFilesErr(s string) bool {
+	if strings.Contains(s, "no Go files in") {
+		return true
+	}
+	return false
 }
 
 func getKubetestAndUtilities() error {
