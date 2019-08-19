@@ -24,35 +24,21 @@ func Setup() error {
 	}
 
 	log.Info("test utilities are not ready. Install...")
-	if os.Getenv("COMPILE_TEST_UTILITIES") != "true" {
-		if err := getKubetestAndUtilities(); err != nil {
-			return err
-		}
-
-		if areTestUtilitiesReady() {
-			log.Info("setup finished successfuly. Testutilities ready. Kubetest is ready for usage.")
-			return nil
-		}
-	} else {
-		goModuleOriginValue := os.Getenv("GO111MODULE")
-		_ = os.Setenv("GO111MODULE", "off")
-		log.Info("test utilities are not ready. Install...")
-		if _, err := util.RunCmd("go get k8s.io/test-infra/kubetest", ""); err != nil {
-			return err
-		}
-		if err := downloadKubernetes(config.K8sRelease); err != nil {
-			return err
-		}
-		if err := downloadKubectl(config.K8sRelease); err != nil {
-			return err
-		}
-		if err := compileOrGetTestUtilities(config.K8sRelease); err != nil {
-			return err
-		}
-		_ = os.Setenv("GO111MODULE", goModuleOriginValue)
-		return nil
+	goModuleOriginValue := os.Getenv("GO111MODULE")
+	_ = os.Setenv("GO111MODULE", "off")
+	if _, err := util.RunCmd("go get k8s.io/test-infra/kubetest", ""); err != nil {
+		return err
 	}
-	log.Fatal("Couldn't prepare kubetest utilities")
+	if err := downloadKubernetes(config.K8sRelease); err != nil {
+		return err
+	}
+	if err := downloadKubectl(config.K8sRelease); err != nil {
+		return err
+	}
+	if err := compileOrGetTestUtilities(config.K8sRelease); err != nil {
+		return err
+	}
+	_ = os.Setenv("GO111MODULE", goModuleOriginValue)
 	return nil
 }
 
