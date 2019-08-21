@@ -45,10 +45,17 @@ func Setup() error {
 func downloadKubernetes(k8sVersion string) error {
 	log.Infof("get kubernetes v%s", k8sVersion)
 	cloneCmd := fmt.Sprintf("git clone --branch=retry-ns-deletion --depth=1 https://github.com/schrodit/kubernetes %s", config.KubernetesPath)
+
 	log.Infof("directory %s does not exist. Run %s", config.KubernetesPath, cloneCmd)
 	if out, err := util.RunCmd(cloneCmd, ""); err != nil && !isNoGoFilesErr(out.StdErr) {
 		log.Errorf("failed to %s", cloneCmd, err)
 		return err
+	}
+
+	if _, err := util.RunCmd("git checkout retry-ns-deletion", config.KubernetesPath); err != nil {
+		return err
+	} else {
+		log.Info("git checkout retry-ns-deletion")
 	}
 
 	log.Infof("kubernetes v%s successfully installed", k8sVersion)
